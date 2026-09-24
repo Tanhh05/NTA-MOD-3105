@@ -17,7 +17,7 @@ struct SettingsView: View {
                         AppLogo()
 
                         VStack(alignment: .leading, spacing: 3) {
-                            Text("3105").font(.headline)
+                            Text("NTA MOD").font(.headline)
                             Text(language.text("common.version", appVersion))
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
@@ -40,16 +40,8 @@ struct SettingsView: View {
                     Toggle(isOn: $cleanerEnabled) {
                         Label(language.text("tab.cleaner"), systemImage: "sparkles")
                     }
-                    Toggle(isOn: $developerModeEnabled) {
-                        Label(
-                            language.text("settings.developer_mode"),
-                            systemImage: "hammer.fill"
-                        )
-                    }
                 } header: {
                     Text(language.text("dashboard.features"))
-                } footer: {
-                    Text(language.text("settings.developer_mode_footer"))
                 }
 
                 if WallpaperFeatureSupportPolicy.isSupported(

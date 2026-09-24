@@ -3,6 +3,17 @@ import SwiftUI
 enum AppLanguage: String, CaseIterable, Identifiable {
     static let storageKey = "appLanguage"
 
+    static var preferredLanguageCode: String {
+        let preferred = Locale.preferredLanguages.first?.lowercased() ?? ""
+        if preferred.starts(with: "vi") {
+            return AppLanguage.vietnamese.rawValue
+        } else if preferred.starts(with: "zh") {
+            return AppLanguage.simplifiedChinese.rawValue
+        } else {
+            return AppLanguage.english.rawValue
+        }
+    }
+
     case english = "en"
     case vietnamese = "vi"
     case simplifiedChinese = "zh-Hans"
