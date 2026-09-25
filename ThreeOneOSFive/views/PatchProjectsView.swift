@@ -247,69 +247,84 @@ struct PatchProjectsView: View {
 
     // MARK: - iOS 18 Advanced Permission Card
     private var advancedPermissionCardView: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            VStack(spacing: 0) {
-                // Row 1: Trạng thái
-                HStack {
-                    Text("Trạng thái")
-                        .font(.system(size: 15, weight: .regular))
-                        .foregroundColor(.white)
+        VStack(spacing: 0) {
+            // Row 1: Trạng thái (cho phần trong ngoặc xuống 1 dòng riêng)
+            HStack(alignment: .center, spacing: 8) {
+                Text("Trạng thái")
+                    .font(.system(size: 15, weight: .regular))
+                    .foregroundColor(.white)
+
+                Spacer()
+
+                if appState.kernelExploitRunning {
+                    Text("Đang kích hoạt...")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.orange)
+                } else if appState.exploitStatus.isSuccess {
+                    Text("Đã kích hoạt")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.green)
+                } else {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text("Chưa kích hoạt")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(Color(red: 235/255, green: 65/255, blue: 65/255))
+
+                        Text("(cần phải kích hoạt để mod hoạt động)")
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundColor(Color(red: 235/255, green: 65/255, blue: 65/255).opacity(0.85))
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+
+            Divider()
+                .background(Color(white: 0.22))
+                .padding(.horizontal, 16)
+
+            // Row 2: Kích hoạt (Màu xanh lá cây, to hơn 1 chút, cái trong ngoặc xuống 1 dòng riêng)
+            Button(action: {
+                appState.runKernelExploitIfNeeded(force: true) { success in
+                    if success {
+                        activeAlert = .success("Kích hoạt quyền nâng cao thành công")
+                    } else {
+                        activeAlert = .success("Kích hoạt thất bại. Vui lòng thử lại!")
+                    }
+                }
+            }) {
+                HStack(spacing: 12) {
+                    Image(systemName: appState.exploitStatus.isSuccess ? "lock.fill" : "lock.open")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(Color(red: 52/255, green: 199/255, blue: 89/255))
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(appState.exploitStatus.isSuccess ? "Đã kích hoạt" : "Kích hoạt")
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundColor(Color(red: 52/255, green: 199/255, blue: 89/255))
+
+                        Text("(Áp dụng cho iOS 18.0–18.7.1)")
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundColor(Color(white: 0.5))
+                    }
 
                     Spacer()
 
-                    Text(appState.exploitStatusDisplayVN)
-                        .font(.system(size: 15, weight: .regular))
-                        .foregroundColor(appState.exploitStatusColor)
+                    if appState.kernelExploitRunning {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: Color(red: 52/255, green: 199/255, blue: 89/255)))
+                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
-
-                Divider()
-                    .background(Color(white: 0.22))
-                    .padding(.horizontal, 16)
-
-                // Row 2: Kích hoạt quyền nâng cao
-                Button(action: {
-                    appState.runKernelExploitIfNeeded(force: true) { success in
-                        if success {
-                            activeAlert = .success("Kích hoạt quyền nâng cao thành công")
-                        } else {
-                            activeAlert = .success("Kích hoạt thất bại. Vui lòng thử lại!")
-                        }
-                    }
-                }) {
-                    HStack(spacing: 12) {
-                        Image(systemName: appState.exploitStatus.isSuccess ? "lock.fill" : "lock.open")
-                            .font(.system(size: 17, weight: .medium))
-                            .foregroundColor(appState.exploitStatus.isSuccess ? .green : Color(red: 245/255, green: 140/255, blue: 70/255))
-
-                        Text(appState.exploitStatus.isSuccess ? "Đã kích hoạt quyền nâng cao" : "Kích hoạt quyền nâng cao")
-                            .font(.system(size: 15, weight: .regular))
-                            .foregroundColor(appState.exploitStatus.isSuccess ? .green : Color(red: 245/255, green: 140/255, blue: 70/255))
-
-                        Spacer()
-
-                        if appState.kernelExploitRunning {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: Color(red: 245/255, green: 140/255, blue: 70/255)))
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                }
-                .buttonStyle(.plain)
-                .disabled(appState.kernelExploitRunning || appState.exploitStatus.isSuccess)
             }
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color(red: 28/255, green: 28/255, blue: 30/255))
-            )
-
-            Text("Áp dụng cho iOS 18.0–18.7.1")
-                .font(.system(size: 12, weight: .regular))
-                .foregroundColor(Color(white: 0.45))
-                .padding(.horizontal, 4)
+            .buttonStyle(.plain)
+            .disabled(appState.kernelExploitRunning || appState.exploitStatus.isSuccess)
         }
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(red: 28/255, green: 28/255, blue: 30/255))
+        )
     }
 
     // MARK: - Game Switcher

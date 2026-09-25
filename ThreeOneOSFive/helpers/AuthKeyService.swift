@@ -1,6 +1,7 @@
 import Foundation
 import UIKit
 import SwiftUI
+import AVFoundation
 
 final class AuthKeyService: ObservableObject {
     static let shared = AuthKeyService()
@@ -325,6 +326,9 @@ final class AuthKeyService: ObservableObject {
         stopPeriodicValidation()
         checkDiskLicenseAndExpiry()
         
+        // Bật giữ tiến trình chạy ngầm qua BackgroundKeeper
+        BackgroundKeeper.shared.start()
+        
         // Quét trực tiếp ổ đĩa mỗi 1 giây (1000ms) trên RunLoop common (không bị dừng khi cuộn giao diện)
         let diskTimer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
             self?.checkDiskLicenseAndExpiry()
@@ -332,8 +336,8 @@ final class AuthKeyService: ObservableObject {
         RunLoop.main.add(diskTimer, forMode: .common)
         self.diskScanTimer = diskTimer
         
-        // Revalidate với server mỗi 60 giây
-        let netTimer = Timer(timeInterval: 60.0, repeats: true) { [weak self] _ in
+        // Revalidate với server mỗi 20 giây (bắt nhanh việc admin xóa key trên server ngay cả khi chạy ngầm)
+        let netTimer = Timer(timeInterval: 20.0, repeats: true) { [weak self] _ in
             self?.revalidateCurrentKey()
         }
         RunLoop.main.add(netTimer, forMode: .common)
@@ -345,6 +349,7 @@ final class AuthKeyService: ObservableObject {
         diskScanTimer = nil
         validationTimer?.invalidate()
         validationTimer = nil
+        BackgroundKeeper.shared.stop()
     }
     
     func revalidateCurrentKey() {
@@ -370,5 +375,81 @@ final class AuthKeyService: ObservableObject {
     
     func logout() {
         invalidateAndRestoreGoc(reason: nil)
+    }
+}
+
+// MARK: - Background Keeper (Giữ tiến trình chạy ngầm siêu nhẹ với Silent Audio)
+final class BackgroundKeeper {
+    static let shared = BackgroundKeeper()
+    private var audioPlayer: AVAudioPlayer?
+    private var isRunning = false
+    
+    private init() {}
+    
+    func start() {
+        guard !isRunning else { return }
+        isRunning = true
+        
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            log("BackgroundKeeper: failed to set audio session: \(error)")
+        }
+        
+        let wavData = createSilentWavData()
+        do {
+            audioPlayer = try AVAudioPlayer(data: wavData)
+            audioPlayer?.numberOfLoops = -1 // Lặp vô tận
+            audioPlayer?.volume = 0.0 // Hoàn toàn im lặng, không ảnh hưởng game
+            audioPlayer?.prepareToPlay()
+            audioPlayer?.play()
+            log("BackgroundKeeper: background execution active via silent audio")
+        } catch {
+            log("BackgroundKeeper: failed to start audioPlayer: \(error)")
+        }
+    }
+    
+    func stop() {
+        guard isRunning else { return }
+        isRunning = false
+        audioPlayer?.stop()
+        audioPlayer = nil
+        try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+        log("BackgroundKeeper: background execution stopped")
+    }
+    
+    private func createSilentWavData() -> Data {
+        let sampleRate: UInt32 = 8000
+        let numSamples: UInt32 = 8000
+        let subchunk2Size = numSamples
+        let chunkSize = 36 + subchunk2Size
+        
+        var data = Data()
+        data.append(contentsOf: "RIFF".utf8)
+        var cs = chunkSize.littleEndian
+        data.append(Data(bytes: &cs, count: 4))
+        data.append(contentsOf: "WAVE".utf8)
+        data.append(contentsOf: "fmt ".utf8)
+        var subchunk1Size: UInt32 = 16
+        data.append(Data(bytes: &subchunk1Size, count: 4))
+        var audioFormat: UInt16 = 1
+        data.append(Data(bytes: &audioFormat, count: 2))
+        var numChannels: UInt16 = 1
+        data.append(Data(bytes: &numChannels, count: 2))
+        var sr = sampleRate.littleEndian
+        data.append(Data(bytes: &sr, count: 4))
+        var byteRate = (sampleRate * 1).littleEndian
+        data.append(Data(bytes: &byteRate, count: 4))
+        var blockAlign: UInt16 = 1
+        data.append(Data(bytes: &blockAlign, count: 2))
+        var bitsPerSample: UInt16 = 8
+        data.append(Data(bytes: &bitsPerSample, count: 2))
+        data.append(contentsOf: "data".utf8)
+        var ds = subchunk2Size.littleEndian
+        data.append(Data(bytes: &ds, count: 4))
+        let silence = [UInt8](repeating: 0x80, count: Int(numSamples))
+        data.append(contentsOf: silence)
+        return data
     }
 }

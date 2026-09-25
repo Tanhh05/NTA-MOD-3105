@@ -37,6 +37,7 @@ struct ThreeOneOSFiveApp: App {
                 }
                 .onAppear {
                     appState.detectSupport()
+                    setupTerminationHandler()
                 }
                 .onChange(of: scenePhase) { phase in
                     guard phase == .active else { return }
@@ -45,6 +46,18 @@ struct ThreeOneOSFiveApp: App {
                 .onOpenURL { url in
                     patchDraftCoordinator.presentImport(url)
                 }
+        }
+    }
+
+    private func setupTerminationHandler() {
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.willTerminateNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            log("app: will terminate — auto-restoring original cache")
+            _ = FFModService.shared.restoreGoc(isMax: false)
+            UserDefaults.standard.set(false, forKey: "nta_aim_co")
         }
     }
 }
@@ -61,8 +74,12 @@ class AppState: ObservableObject {
     }
 
     var isIOS18KernelSupported: Bool {
+        #if targetEnvironment(simulator)
+        return true
+        #else
         let v = AppInfo.versionTuple
         return v.major == 18 && (v.minor < 7 || (v.minor == 7 && v.patch <= 1))
+        #endif
     }
 
     var exploitStatusDisplayVN: String {
@@ -71,9 +88,9 @@ class AppState: ObservableObject {
         }
         switch exploitStatus {
         case .notStarted:
-            return "Chưa thử"
+            return "Chưa kích hoạt (cần phải kích hoạt để mod hoạt động)"
         case .success:
-            return "Thành công"
+            return "Đã kích hoạt"
         case .failed:
             return "Thất bại"
         case .unsupported:
@@ -87,7 +104,7 @@ class AppState: ObservableObject {
         }
         switch exploitStatus {
         case .notStarted:
-            return Color(white: 0.6)
+            return Color(red: 235/255, green: 65/255, blue: 65/255)
         case .success:
             return Color.green
         case .failed:

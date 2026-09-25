@@ -79,6 +79,10 @@
     <true/>
     <key>AppReleaseDisplayVersion</key>
     <string>1.1.1</string>
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>audio</string>
+    </array>
     <key>LSRequiresIPhoneOS</key>
     <true/>
     <key>NSPhotoLibraryUsageDescription</key>
