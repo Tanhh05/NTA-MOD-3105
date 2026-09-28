@@ -118,7 +118,7 @@ struct ContentView: View {
                         )
                     }
                 }
-                .navigationTitle("NTA MOD")
+                .navigationTitle("ROX")
                 .navigationSplitViewColumnWidth(min: 210, ideal: 240, max: 300)
             } detail: {
                 sectionContent(selectedVisibleSection)
@@ -220,7 +220,7 @@ private extension AppSection {
 
     var systemImage: String {
         switch self {
-        case .installed: return "tray.full.fill"
+        case .installed: return "gamecontroller.fill"
         case .files: return "folder.fill"
         }
     }

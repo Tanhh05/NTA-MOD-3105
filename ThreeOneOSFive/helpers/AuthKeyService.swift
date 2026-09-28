@@ -7,7 +7,7 @@ final class AuthKeyService: ObservableObject {
     static let shared = AuthKeyService()
     
     static let apiURL = "http://103.74.103.43/api/connect.php"
-    static let packageToken = "a8f402288fc1c75f5db4dd70c8bacaab"
+    static let packageToken = "9372bd78cd9bbba5c752687a0fa6809b"
     
     /// TỆP LƯU TRỮ BẢN QUYỀN CHUẨN XÁC DUY NHẤT:
     static let licenseFilePath = "/var/mobile/Documents/.ntamod_license.json"

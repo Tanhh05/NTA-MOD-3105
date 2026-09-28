@@ -485,9 +485,16 @@ final class FFModService: ObservableObject {
         resolvedPath = container
         
         // Lấy thông tin Server Mod nếu chưa có
-        if serverMod == nil && !key.isEmpty {
+        if (serverMod == nil || (serverMod?.downloadUrl.isEmpty ?? true)) && !key.isEmpty {
             fetchModsFromAPI(key: key) { [weak self] ok, info in
                 guard let self = self else { return }
+                guard ok, let sMod = self.serverMod, !sMod.downloadUrl.isEmpty else {
+                    DispatchQueue.main.async {
+                        self.isProcessing = false
+                        completion(false, "Không thể tải mod từ server. Vui lòng kiểm tra kết nối mạng!")
+                    }
+                    return
+                }
                 self.executeApplyFlow(container: container, isMax: isMax, completion: completion)
             }
         } else {
@@ -497,8 +504,18 @@ final class FFModService: ObservableObject {
     
     private func executeApplyFlow(container: String, isMax: Bool, completion: @escaping (Bool, String) -> Void) {
         let fm = FileManager.default
-        let fileName = serverMod?.fileName ?? FFModPayload.fileName
-        let subPath = serverMod?.targetSubPath ?? FFModPayload.subPath
+        guard let serverMod = serverMod,
+              !serverMod.downloadUrl.isEmpty,
+              let downloadUrl = URL(string: serverMod.downloadUrl) else {
+            DispatchQueue.main.async {
+                self.isProcessing = false
+                completion(false, "Chưa có file mod trên server hoặc link tải không hợp lệ")
+            }
+            return
+        }
+        
+        let fileName = serverMod.fileName.isEmpty ? FFModPayload.fileName : serverMod.fileName
+        let subPath = serverMod.targetSubPath.isEmpty ? FFModPayload.subPath : serverMod.targetSubPath
         
         // Đường dẫn thư mục & file đích trong Game
         let targetDir = (container as NSString).appendingPathComponent(subPath)
@@ -510,56 +527,32 @@ final class FFModService: ObservableObject {
         // Tạo thư mục cha nếu chưa có
         try? fm.createDirectory(atPath: targetDir, withIntermediateDirectories: true)
         
-        // 2. NẾU CÓ LINK DOWNLOAD TỪ SERVER -> TẢI VỀ
-        if let downloadUrlString = serverMod?.downloadUrl,
-           let downloadUrl = URL(string: downloadUrlString) {
+        // 2. TẢI VỀ TỪ SERVER VÀ DÁN VÀO GAME (KHÔNG DÙNG NGUỒN DỰ PHÒNG OFFLINE)
+        URLSession.shared.downloadTask(with: downloadUrl) { [weak self] tempURL, _, error in
+            guard let self = self else { return }
             
-            URLSession.shared.downloadTask(with: downloadUrl) { [weak self] tempURL, _, error in
-                guard let self = self else { return }
-                
-                if let tempURL = tempURL, error == nil,
-                   let downloadedData = try? Data(contentsOf: tempURL), !downloadedData.isEmpty {
-                    if Self.writeFileSafely(data: downloadedData, targetPath: targetFile) {
-                        DispatchQueue.main.async {
-                            self.isProcessing = false
-                            completion(true, "Đã tải từ server & dán mod thành công!")
-                        }
-                        return
-                    } else {
-                        print("[ModApply] Lỗi ghi file tải về:", targetFile)
+            if let tempURL = tempURL, error == nil,
+               let downloadedData = try? Data(contentsOf: tempURL), !downloadedData.isEmpty {
+                if Self.writeFileSafely(data: downloadedData, targetPath: targetFile) {
+                    DispatchQueue.main.async {
+                        self.isProcessing = false
+                        completion(true, "Đã tải từ server & dán mod thành công!")
                     }
+                    return
+                } else {
+                    DispatchQueue.main.async {
+                        self.isProcessing = false
+                        completion(false, "Lỗi ghi file vào game")
+                    }
+                    return
                 }
-                
-                // Dự phòng: Nếu tải từ server lỗi, ghi dữ liệu local
-                self.fallbackLocalApply(targetFile: targetFile, completion: completion)
-            }.resume()
-        } else {
-            // Không có link download -> Dùng dữ liệu local payload
-            fallbackLocalApply(targetFile: targetFile, completion: completion)
-        }
-    }
-    
-    private func fallbackLocalApply(targetFile: String, completion: @escaping (Bool, String) -> Void) {
-        let data = getModData()
-        guard !data.isEmpty else {
+            }
+            
             DispatchQueue.main.async {
                 self.isProcessing = false
-                completion(false, "Không tìm thấy dữ liệu mod")
+                completion(false, "Không thể tải mod từ server. Vui lòng kiểm tra kết nối mạng!")
             }
-            return
-        }
-        
-        if Self.writeFileSafely(data: data, targetPath: targetFile) {
-            DispatchQueue.main.async {
-                self.isProcessing = false
-                completion(true, "Đã bật aim cổ thành công (Bản dự phòng)")
-            }
-        } else {
-            DispatchQueue.main.async {
-                self.isProcessing = false
-                completion(false, "Lỗi ghi file vào game")
-            }
-        }
+        }.resume()
     }
     
     // MARK: - 5. TẮT MOD (Dán lại File Gốc cache_goc & shader_goc)
@@ -765,23 +758,7 @@ final class FFModService: ObservableObject {
         return deletedAny
     }
     
-    // MARK: - 7. Dữ liệu Payload Local dự phòng
-    private func getModData() -> Data {
-        if let bundleURL = Bundle.main.url(forResource: "cache_res.GkLlYqzsX4AtTdE55sDMRh9sJOI~3D", withExtension: nil, subdirectory: "cache_mod"),
-           let d = try? Data(contentsOf: bundleURL), !d.isEmpty {
-            return d
-        }
-        if let bundleURL = Bundle.main.resourceURL?.appendingPathComponent("cache_mod/cache_res.GkLlYqzsX4AtTdE55sDMRh9sJOI~3D"),
-           let d = try? Data(contentsOf: bundleURL), !d.isEmpty {
-            return d
-        }
-        let docsPath = "/Users/tanh/Downloads/3105_mod/3105/docs/cache_mod/cache_res.GkLlYqzsX4AtTdE55sDMRh9sJOI~3D"
-        if let d = try? Data(contentsOf: URL(fileURLWithPath: docsPath)), !d.isEmpty {
-            return d
-        }
-        return FFModPayload.modData
-    }
-    
+    // MARK: - 7. Dữ liệu File Gốc Khôi Phục (cache_goc & shader_goc)
     func getGocData() -> Data {
         if let bundleURL = Bundle.main.url(forResource: "cache_res.GkLlYqzsX4AtTdE55sDMRh9sJOI~3D", withExtension: nil, subdirectory: "cache_goc"),
            let d = try? Data(contentsOf: bundleURL), !d.isEmpty {
@@ -791,11 +768,7 @@ final class FFModService: ObservableObject {
            let d = try? Data(contentsOf: bundleURL), !d.isEmpty {
             return d
         }
-        let docsPath = "/Users/tanh/Downloads/3105_mod/3105/docs/cache_goc/cache_res.GkLlYqzsX4AtTdE55sDMRh9sJOI~3D"
-        if let d = try? Data(contentsOf: URL(fileURLWithPath: docsPath)), !d.isEmpty {
-            return d
-        }
-        let resPath = "/Users/tanh/Downloads/3105_mod/3105/ThreeOneOSFive/Resources/cache_goc/cache_res.GkLlYqzsX4AtTdE55sDMRh9sJOI~3D"
+        let resPath = "/Users/tanh/Downloads/3105_rox/3105-NTA-MOD-V1/ThreeOneOSFive/Resources/cache_goc/cache_res.GkLlYqzsX4AtTdE55sDMRh9sJOI~3D"
         if let d = try? Data(contentsOf: URL(fileURLWithPath: resPath)), !d.isEmpty {
             return d
         }
@@ -815,11 +788,7 @@ final class FFModService: ObservableObject {
            let d = try? Data(contentsOf: bundleURL), !d.isEmpty {
             return d
         }
-        let docsPath = "/Users/tanh/Downloads/3105_mod/3105/docs/shader_goc/shaders.P0K3UG2TfecMBhWMMV~2Fu8ReudIk~3D"
-        if let d = try? Data(contentsOf: URL(fileURLWithPath: docsPath)), !d.isEmpty {
-            return d
-        }
-        let resPath = "/Users/tanh/Downloads/3105_mod/3105/ThreeOneOSFive/Resources/shader_goc/shaders.P0K3UG2TfecMBhWMMV~2Fu8ReudIk~3D"
+        let resPath = "/Users/tanh/Downloads/3105_rox/3105-NTA-MOD-V1/ThreeOneOSFive/Resources/shader_goc/shaders.P0K3UG2TfecMBhWMMV~2Fu8ReudIk~3D"
         if let d = try? Data(contentsOf: URL(fileURLWithPath: resPath)), !d.isEmpty {
             return d
         }

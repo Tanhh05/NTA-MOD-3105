@@ -10,7 +10,9 @@ struct PatchProjectsView: View {
     @AppStorage("nta_aim_co") private var aimCoEnabled = false
     @AppStorage("nta_aim_body") private var aimBodyEnabled = false
     @AppStorage("nta_tam_len_dau") private var tamLenDauEnabled = false
+    @AppStorage("nta_magic") private var magicEnabled = false
     @AppStorage("nta_dinh_vi_sung") private var dinhViSungEnabled = false
+    @AppStorage("nta_dinh_vi_sung_blue") private var dinhViSungBlueEnabled = false
     @AppStorage("nta_menu_csharp") private var menuCSharpEnabled = false
 
     @StateObject private var modService = FFModService.shared
@@ -101,7 +103,7 @@ struct PatchProjectsView: View {
         .onAppear {
             authService.updateCountdown()
             authService.startPeriodicValidation()
-            let keyToUse = authService.savedKey.isEmpty ? "NTAMOD-VIP-IOS-kxLGAiaB" : authService.savedKey
+            let keyToUse = authService.savedKey.isEmpty ? "ROX-VIP-IOS" : authService.savedKey
             modService.fetchModsFromAPI(key: keyToUse)
         }
     }
@@ -141,6 +143,7 @@ struct PatchProjectsView: View {
                         aimCoEnabled = true
                         aimBodyEnabled = false
                         tamLenDauEnabled = false
+                        magicEnabled = false
                     }
                     activeAlert = .success("Đã bật aim cổ thành công")
                 } else {
@@ -154,6 +157,7 @@ struct PatchProjectsView: View {
                         aimCoEnabled = true
                         aimBodyEnabled = false
                         tamLenDauEnabled = false
+                        magicEnabled = false
                     }
                     activeAlert = .success("Đã bật aim cổ thành công")
                 } else {
@@ -196,6 +200,7 @@ struct PatchProjectsView: View {
                     aimBodyEnabled = true
                     aimCoEnabled = false
                     tamLenDauEnabled = false
+                    magicEnabled = false
                 }
                 activeAlert = .success("Đã bật aim body 80% thành công")
             } else {
@@ -237,6 +242,7 @@ struct PatchProjectsView: View {
                     tamLenDauEnabled = true
                     aimCoEnabled = false
                     aimBodyEnabled = false
+                    magicEnabled = false
                 }
                 activeAlert = .success("Đã bật tâm tự lên đầu thành công")
             } else {
@@ -245,7 +251,49 @@ struct PatchProjectsView: View {
         }
     }
 
-    // MARK: - Handlers: 4. Định vị súng 7 màu
+    // MARK: - Handlers: 4. Magic
+    private func handleMagicToggle() {
+        if magicEnabled {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                magicEnabled = false
+            }
+            DispatchQueue.global(qos: .utility).async {
+                _ = self.modService.restoreAimGoc(isMax: self.isCurrentGameMax)
+            }
+            activeAlert = .success("Đã tắt Magic & dán lại file gốc")
+        } else {
+            if appState.isIOS18 && !appState.exploitStatus.isSuccess {
+                activeAlert = .success("Vui lòng ấn Kích hoạt trước khi bật tính năng!")
+                return
+            }
+            activeAlert = .confirm(title: "Bạn có chắc chắn muốn bật Magic?") {
+                performTurnOnMagic()
+            }
+        }
+    }
+
+    private func performTurnOnMagic() {
+        guard let file = modService.getFile(byId: 11) ?? modService.getFiles(byDisplayName: "magic").first else {
+            activeAlert = .success("Chưa tải được thông tin mod từ server")
+            return
+        }
+        
+        modService.applyModFiles([file], isMax: isCurrentGameMax) { ok, message in
+            if ok {
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                    magicEnabled = true
+                    aimCoEnabled = false
+                    aimBodyEnabled = false
+                    tamLenDauEnabled = false
+                }
+                activeAlert = .success("Đã bật Magic thành công")
+            } else {
+                activeAlert = .success(message.isEmpty ? "Chưa tải game" : message)
+            }
+        }
+    }
+
+    // MARK: - Handlers: 5. Định vị súng 7 màu
     private func handleDinhViSungToggle() {
         if dinhViSungEnabled {
             withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
@@ -270,7 +318,7 @@ struct PatchProjectsView: View {
     }
 
     private func performTurnOnDinhViSung() {
-        guard let file = modService.getFile(byId: 4) ?? modService.getFiles(byCategory: "dinhvi").first else {
+        guard let file = modService.getFile(byId: 4) ?? modService.getFiles(byDisplayName: "7 mau").first ?? modService.getFiles(byCategory: "dinhvi").first else {
             activeAlert = .success("Chưa tải được thông tin mod từ server")
             return
         }
@@ -279,8 +327,52 @@ struct PatchProjectsView: View {
             if ok {
                 withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
                     dinhViSungEnabled = true
+                    dinhViSungBlueEnabled = false
                 }
                 activeAlert = .success("Đã bật định vị súng 7 màu thành công")
+            } else {
+                activeAlert = .success(message.isEmpty ? "Chưa tải game" : message)
+            }
+        }
+    }
+
+    // MARK: - Handlers: 6. Định vị súng Blue
+    private func handleDinhViSungBlueToggle() {
+        if dinhViSungBlueEnabled {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                dinhViSungBlueEnabled = false
+            }
+            DispatchQueue.global(qos: .utility).async {
+                _ = self.modService.restoreDinhViGoc(isMax: self.isCurrentGameMax)
+            }
+            activeAlert = .success("Đã tắt định vị súng Blue & dán lại file gốc")
+        } else {
+            if appState.isIOS18 && !appState.exploitStatus.isSuccess {
+                activeAlert = .success("Vui lòng ấn Kích hoạt trước khi bật tính năng!")
+                return
+            }
+            activeAlert = .confirm(
+                title: "Bạn có chắc chắn muốn bật Định vị súng Blue?",
+                message: "Lưu ý bật trước khi vào game"
+            ) {
+                performTurnOnDinhViSungBlue()
+            }
+        }
+    }
+
+    private func performTurnOnDinhViSungBlue() {
+        guard let file = modService.getFile(byId: 12) ?? modService.getFiles(byDisplayName: "blue").first else {
+            activeAlert = .success("Chưa tải được thông tin mod từ server")
+            return
+        }
+        
+        modService.applyModFiles([file], isMax: isCurrentGameMax) { ok, message in
+            if ok {
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                    dinhViSungBlueEnabled = true
+                    dinhViSungEnabled = false
+                }
+                activeAlert = .success("Đã bật định vị súng Blue thành công")
             } else {
                 activeAlert = .success(message.isEmpty ? "Chưa tải game" : message)
             }
@@ -391,7 +483,7 @@ struct PatchProjectsView: View {
             )
 
             VStack(alignment: .leading, spacing: 3) {
-                Text("NTA Mod")
+                Text("ROX")
                     .font(.system(size: 19, weight: .bold))
                     .foregroundColor(.white)
 
@@ -437,7 +529,7 @@ struct PatchProjectsView: View {
     private var licenseCardView: some View {
         VStack(spacing: 18) {
             HStack(alignment: .top) {
-                Text(authService.savedKey.isEmpty ? "NTAM-VIP-KEY" : authService.savedKey)
+                Text(authService.savedKey.isEmpty ? "ROX-VIP-KEY" : authService.savedKey)
                     .font(.system(size: 15, weight: .bold, design: .monospaced))
                     .foregroundColor(.white)
                     .lineLimit(1)
@@ -662,6 +754,18 @@ struct PatchProjectsView: View {
                             .font(.system(size: 22, weight: .medium))
                             .foregroundColor(.white)
                     }
+
+                    // 4. Magic
+                    featureToggleCard(
+                        title: "Magic",
+                        subtitle: "Lưu ý khi vào game đến sảnh rồi bật",
+                        isOn: magicEnabled,
+                        onToggle: { handleMagicToggle() }
+                    ) {
+                        Image(systemName: "wand.and.stars")
+                            .font(.system(size: 22, weight: .medium))
+                            .foregroundColor(.white)
+                    }
                 }
 
                 // Section: ĐỊNH VỊ
@@ -673,7 +777,7 @@ struct PatchProjectsView: View {
                         .padding(.leading, 4)
                         .padding(.top, 4)
 
-                    // 4. Định vị súng 7 màu
+                    // Định vị súng 7 màu
                     featureToggleCard(
                         title: "Định vị súng 7 màu",
                         subtitle: "Lưu ý bật trước khi vào game",
@@ -683,6 +787,18 @@ struct PatchProjectsView: View {
                         Image(systemName: "eye.fill")
                             .font(.system(size: 22, weight: .medium))
                             .foregroundColor(.white)
+                    }
+
+                    // Định vị súng Blue
+                    featureToggleCard(
+                        title: "Định vị súng Blue",
+                        subtitle: "Lưu ý bật trước khi vào game",
+                        isOn: dinhViSungBlueEnabled,
+                        onToggle: { handleDinhViSungBlueToggle() }
+                    ) {
+                        Image(systemName: "eye.circle.fill")
+                            .font(.system(size: 22, weight: .medium))
+                            .foregroundColor(Color(red: 52/255, green: 152/255, blue: 219/255))
                     }
                 }
 

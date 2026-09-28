@@ -39,10 +39,7 @@ struct FeatureVisibility: Equatable {
     }
 
     var visibleSections: [AppSection] {
-        if developerModeEnabled {
-            return [.installed, .files]
-        }
-        return [.installed]
+        [.installed]
     }
 
     func isVisible(_ section: AppSection) -> Bool {

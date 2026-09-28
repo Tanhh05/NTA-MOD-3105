@@ -491,7 +491,7 @@
 /* Repository marketplace */
 "tab.explore" = "Explore";
 "tab.sources" = "Sources";
-"tab.installed" = "Installed";
+"tab.installed" = "Mod";
 "installed.search" = "Search patches or wallpapers";
 "installed.empty_title" = "Nothing Installed";
 "installed.empty_message" = "Import a .3105 patch or .tendies wallpaper package to begin.";

@@ -491,7 +491,7 @@
 /* Kho gói */
 "tab.explore" = "Khám phá";
 "tab.sources" = "Nguồn";
-"tab.installed" = "Đã cài";
+"tab.installed" = "Mod";
 "installed.search" = "Tìm patch hoặc hình nền";
 "installed.empty_title" = "Chưa có nội dung";
 "installed.empty_message" = "Nhập patch .3105 hoặc gói hình nền .tendies để bắt đầu.";

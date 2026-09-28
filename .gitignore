@@ -42,3 +42,4 @@ DerivedData/
 *.tmp
 *.swp
 *~
+build_output/
