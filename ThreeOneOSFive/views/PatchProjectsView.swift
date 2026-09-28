@@ -6,22 +6,28 @@ struct PatchProjectsView: View {
     let onOpenLogs: () -> Void
 
     @AppStorage("nta_selected_game") private var selectedGame = "Free Fire"
+    private var isCurrentGameMax: Bool { selectedGame.contains("MAX") }
     @AppStorage("nta_aim_co") private var aimCoEnabled = false
+    @AppStorage("nta_aim_body") private var aimBodyEnabled = false
+    @AppStorage("nta_tam_len_dau") private var tamLenDauEnabled = false
+    @AppStorage("nta_dinh_vi_sung") private var dinhViSungEnabled = false
+    @AppStorage("nta_menu_csharp") private var menuCSharpEnabled = false
+
     @StateObject private var modService = FFModService.shared
     @StateObject private var authService = AuthKeyService.shared
     @EnvironmentObject private var appState: AppState
     @State private var activeAlert: ActiveAlert? = nil
 
     enum ActiveAlert: Identifiable {
-        case confirm
+        case confirm(title: String, message: String? = nil, action: () -> Void)
         case success(String)
         case notInstalled
         case logoutConfirm
         
         var id: String {
             switch self {
-            case .confirm:
-                return "confirm"
+            case .confirm(let title, _, _):
+                return "confirm_\(title)"
             case .success(let msg):
                 return "success_\(msg)"
             case .notInstalled:
@@ -60,12 +66,12 @@ struct PatchProjectsView: View {
         .statusBarHidden(false)
         .alert(item: $activeAlert) { item in
             switch item {
-            case .confirm:
+            case .confirm(let title, let message, let action):
                 return Alert(
-                    title: Text("Bạn có chắc chắn muốn bật?"),
-                    message: nil,
+                    title: Text(title),
+                    message: message != nil ? Text(message!) : nil,
                     primaryButton: .default(Text("Bật")) {
-                        performTurnOn()
+                        action()
                     },
                     secondaryButton: .cancel(Text("Hủy"))
                 )
@@ -95,30 +101,267 @@ struct PatchProjectsView: View {
         .onAppear {
             authService.updateCountdown()
             authService.startPeriodicValidation()
+            let keyToUse = authService.savedKey.isEmpty ? "NTAMOD-VIP-IOS-kxLGAiaB" : authService.savedKey
+            modService.fetchModsFromAPI(key: keyToUse)
         }
     }
 
-    private func handleUserToggle() {
+    // MARK: - Handlers: 1. Aim Cổ (Aim Neck)
+    private func handleAimNeckToggle() {
         if aimCoEnabled {
             withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
                 aimCoEnabled = false
             }
-            _ = modService.restoreGoc(isMax: false)
-            activeAlert = .success("Đã tắt aim cổ")
+            DispatchQueue.global(qos: .utility).async {
+                _ = self.modService.restoreAimGoc(isMax: self.isCurrentGameMax)
+            }
+            activeAlert = .success("Đã tắt aim cổ thành công")
         } else {
-            activeAlert = .confirm
+            if appState.isIOS18 && !appState.exploitStatus.isSuccess {
+                activeAlert = .success("Vui lòng ấn Kích hoạt trước khi bật tính năng!")
+                return
+            }
+            activeAlert = .confirm(title: "Bạn có chắc chắn muốn bật Aim cổ?") {
+                performTurnOnAimNeck()
+            }
         }
     }
 
-    private func performTurnOn() {
-        let ok = modService.applyMod(isMax: false)
-        if ok {
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
-                aimCoEnabled = true
+    private func performTurnOnAimNeck() {
+        let filesToApply: [ServerModFile] = {
+            if let f = modService.getFile(byId: 2) { return [f] }
+            if let f = modService.getFiles(byDisplayName: "neck").first { return [f] }
+            return []
+        }()
+        
+        if filesToApply.isEmpty {
+            modService.applyModOnline(isMax: isCurrentGameMax, key: authService.savedKey) { ok, message in
+                if ok {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                        aimCoEnabled = true
+                        aimBodyEnabled = false
+                        tamLenDauEnabled = false
+                    }
+                    activeAlert = .success("Đã bật aim cổ thành công")
+                } else {
+                    activeAlert = .success(message.isEmpty ? "Chưa tải game" : message)
+                }
             }
-            activeAlert = .success("Đã bật aim cổ thành công")
         } else {
-            activeAlert = .notInstalled
+            modService.applyModFiles(filesToApply, isMax: isCurrentGameMax) { ok, message in
+                if ok {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                        aimCoEnabled = true
+                        aimBodyEnabled = false
+                        tamLenDauEnabled = false
+                    }
+                    activeAlert = .success("Đã bật aim cổ thành công")
+                } else {
+                    activeAlert = .success(message.isEmpty ? "Chưa tải game" : message)
+                }
+            }
+        }
+    }
+
+    // MARK: - Handlers: 2. Aim Body 80%
+    private func handleAimBodyToggle() {
+        if aimBodyEnabled {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                aimBodyEnabled = false
+            }
+            DispatchQueue.global(qos: .utility).async {
+                _ = self.modService.restoreAimGoc(isMax: self.isCurrentGameMax)
+            }
+            activeAlert = .success("Đã tắt aim body 80% & dán lại file gốc")
+        } else {
+            if appState.isIOS18 && !appState.exploitStatus.isSuccess {
+                activeAlert = .success("Vui lòng ấn Kích hoạt trước khi bật tính năng!")
+                return
+            }
+            activeAlert = .confirm(title: "Bạn có chắc chắn muốn bật Aim Body 80%?") {
+                performTurnOnAimBody()
+            }
+        }
+    }
+
+    private func performTurnOnAimBody() {
+        guard let file = modService.getFile(byId: 3) ?? modService.getFiles(byDisplayName: "body").first else {
+            activeAlert = .success("Chưa tải được thông tin mod từ server")
+            return
+        }
+        
+        modService.applyModFiles([file], isMax: isCurrentGameMax) { ok, message in
+            if ok {
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                    aimBodyEnabled = true
+                    aimCoEnabled = false
+                    tamLenDauEnabled = false
+                }
+                activeAlert = .success("Đã bật aim body 80% thành công")
+            } else {
+                activeAlert = .success(message.isEmpty ? "Chưa tải game" : message)
+            }
+        }
+    }
+
+    // MARK: - Handlers: 3. Tâm tự lên đầu
+    private func handleTamLenDauToggle() {
+        if tamLenDauEnabled {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                tamLenDauEnabled = false
+            }
+            DispatchQueue.global(qos: .utility).async {
+                _ = self.modService.restoreAimGoc(isMax: self.isCurrentGameMax)
+            }
+            activeAlert = .success("Đã tắt tâm tự lên đầu & dán lại file gốc")
+        } else {
+            if appState.isIOS18 && !appState.exploitStatus.isSuccess {
+                activeAlert = .success("Vui lòng ấn Kích hoạt trước khi bật tính năng!")
+                return
+            }
+            activeAlert = .confirm(title: "Bạn có chắc chắn muốn bật Tâm tự lên đầu?") {
+                performTurnOnTamLenDau()
+            }
+        }
+    }
+
+    private func performTurnOnTamLenDau() {
+        guard let file = modService.getFile(byId: 5) ?? modService.getFiles(byDisplayName: "tam").first else {
+            activeAlert = .success("Chưa tải được thông tin mod từ server")
+            return
+        }
+        
+        modService.applyModFiles([file], isMax: isCurrentGameMax) { ok, message in
+            if ok {
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                    tamLenDauEnabled = true
+                    aimCoEnabled = false
+                    aimBodyEnabled = false
+                }
+                activeAlert = .success("Đã bật tâm tự lên đầu thành công")
+            } else {
+                activeAlert = .success(message.isEmpty ? "Chưa tải game" : message)
+            }
+        }
+    }
+
+    // MARK: - Handlers: 4. Định vị súng 7 màu
+    private func handleDinhViSungToggle() {
+        if dinhViSungEnabled {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                dinhViSungEnabled = false
+            }
+            DispatchQueue.global(qos: .utility).async {
+                _ = self.modService.restoreDinhViGoc(isMax: self.isCurrentGameMax)
+            }
+            activeAlert = .success("Đã tắt định vị súng 7 màu & dán lại file gốc")
+        } else {
+            if appState.isIOS18 && !appState.exploitStatus.isSuccess {
+                activeAlert = .success("Vui lòng ấn Kích hoạt trước khi bật tính năng!")
+                return
+            }
+            activeAlert = .confirm(
+                title: "Bạn có chắc chắn muốn bật Định vị súng 7 màu?",
+                message: "Lưu ý bật trước khi vào game"
+            ) {
+                performTurnOnDinhViSung()
+            }
+        }
+    }
+
+    private func performTurnOnDinhViSung() {
+        guard let file = modService.getFile(byId: 4) ?? modService.getFiles(byCategory: "dinhvi").first else {
+            activeAlert = .success("Chưa tải được thông tin mod từ server")
+            return
+        }
+        
+        modService.applyModFiles([file], isMax: isCurrentGameMax) { ok, message in
+            if ok {
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                    dinhViSungEnabled = true
+                }
+                activeAlert = .success("Đã bật định vị súng 7 màu thành công")
+            } else {
+                activeAlert = .success(message.isEmpty ? "Chưa tải game" : message)
+            }
+        }
+    }
+
+    // MARK: - Handlers: 5. Menu (theo tên API: Menu FF)
+    private var menuTitle: String {
+        if let name = modService.getFiles(byCategory: "menu").first?.displayName, !name.isEmpty {
+            if name.lowercased() == "menu ff" {
+                return "Menu FF"
+            }
+            return name.capitalized
+        }
+        return "Menu FF"
+    }
+
+    private func handleMenuCSharpToggle() {
+        if menuCSharpEnabled {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                menuCSharpEnabled = false
+            }
+            DispatchQueue.global(qos: .utility).async {
+                _ = self.modService.removeMenuCSharpFiles()
+            }
+            activeAlert = .success("Đã tắt \(menuTitle.lowercased()) thành công")
+        } else {
+            if appState.isIOS18 && !appState.exploitStatus.isSuccess {
+                activeAlert = .success("Vui lòng ấn Kích hoạt trước khi bật tính năng!")
+                return
+            }
+            activeAlert = .confirm(
+                title: "Bạn có chắc chắn muốn bật \(menuTitle)?",
+                message: "Lưu ý bật trước khi vào game"
+            ) {
+                performTurnOnMenuCSharp()
+            }
+        }
+    }
+
+    private func performTurnOnMenuCSharp() {
+        let isMax = selectedGame.contains("MAX")
+        var files = modService.getFiles(byCategory: "menu")
+        if files.isEmpty {
+            files = modService.getFiles(byDisplayName: "menu")
+        }
+        
+        guard !files.isEmpty else {
+            if !authService.savedKey.isEmpty {
+                modService.fetchModsFromAPI(key: authService.savedKey) { ok, newFiles in
+                    let menuFiles = newFiles.filter { $0.category.lowercased() == "menu" || $0.displayName.lowercased().contains("menu") }
+                    if !menuFiles.isEmpty {
+                        self.modService.applyModFiles(menuFiles, isMax: isMax) { okApply, msg in
+                            if okApply {
+                                withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                                    self.menuCSharpEnabled = true
+                                }
+                                self.activeAlert = .success("Đã bật \(self.menuTitle.lowercased()) thành công")
+                            } else {
+                                self.activeAlert = .success(msg.isEmpty ? "Chưa tải game" : msg)
+                            }
+                        }
+                    } else {
+                        self.activeAlert = .success("Chưa tải được thông tin mod từ server")
+                    }
+                }
+            } else {
+                activeAlert = .success("Chưa tải được thông tin mod từ server")
+            }
+            return
+        }
+        
+        modService.applyModFiles(files, isMax: isMax) { ok, message in
+            if ok {
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                    menuCSharpEnabled = true
+                }
+                activeAlert = .success("Đã bật \(menuTitle.lowercased()) thành công")
+            } else {
+                activeAlert = .success(message.isEmpty ? "Chưa tải game" : message)
+            }
         }
     }
 
@@ -288,6 +531,10 @@ struct PatchProjectsView: View {
                 appState.runKernelExploitIfNeeded(force: true) { success in
                     if success {
                         activeAlert = .success("Kích hoạt quyền nâng cao thành công")
+                        // Trên iOS 18: Sau khi ấn kích hoạt thành công, mới chạy quét container và dọn dẹp file trên background thread!
+                        DispatchQueue.global(qos: .utility).async {
+                            _ = FFModService.shared.removeMenuCSharpFiles()
+                        }
                     } else {
                         activeAlert = .success("Kích hoạt thất bại. Vui lòng thử lại!")
                     }
@@ -366,30 +613,99 @@ struct PatchProjectsView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - AIM Section
+    // MARK: - AIM & MOD FEATURES Section
     @ViewBuilder
     private var aimSectionView: some View {
         if !selectedGame.contains("MAX") {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("AIM")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundColor(Color(white: 0.45))
-                    .tracking(1.0)
-                    .padding(.leading, 4)
-                    .padding(.top, 8)
+            VStack(alignment: .leading, spacing: 16) {
+                // Section: AIM
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("TÍNH NĂNG AIM")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(Color(white: 0.45))
+                        .tracking(1.0)
+                        .padding(.leading, 4)
+                        .padding(.top, 4)
 
-                // Aim cổ
-                featureToggleCard(
-                    title: "Aim cổ",
-                    subtitle: "Lưu ý khi vào game đến sảnh rồi bật",
-                    isOn: aimCoEnabled,
-                    onToggle: {
-                        handleUserToggle()
+                    // 1. Aim cổ (Aim Neck)
+                    featureToggleCard(
+                        title: "Aim cổ",
+                        subtitle: "Lưu ý khi vào game đến sảnh rồi bật",
+                        isOn: aimCoEnabled,
+                        onToggle: { handleAimNeckToggle() }
+                    ) {
+                        Image(systemName: "scope")
+                            .font(.system(size: 22, weight: .medium))
+                            .foregroundColor(.white)
                     }
-                ) {
-                    Image(systemName: "scope")
-                        .font(.system(size: 22, weight: .medium))
-                        .foregroundColor(.white)
+
+                    // 2. Aim Body 80%
+                    featureToggleCard(
+                        title: "Aim Body 80%",
+                        subtitle: "Lưu ý khi vào game đến sảnh rồi bật",
+                        isOn: aimBodyEnabled,
+                        onToggle: { handleAimBodyToggle() }
+                    ) {
+                        Image(systemName: "target")
+                            .font(.system(size: 22, weight: .medium))
+                            .foregroundColor(.white)
+                    }
+
+                    // 3. Tâm tự lên đầu
+                    featureToggleCard(
+                        title: "Tâm tự lên đầu",
+                        subtitle: "Lưu ý khi vào game đến sảnh rồi bật",
+                        isOn: tamLenDauEnabled,
+                        onToggle: { handleTamLenDauToggle() }
+                    ) {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 22, weight: .medium))
+                            .foregroundColor(.white)
+                    }
+                }
+
+                // Section: ĐỊNH VỊ
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("ĐỊNH VỊ / ESP")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(Color(white: 0.45))
+                        .tracking(1.0)
+                        .padding(.leading, 4)
+                        .padding(.top, 4)
+
+                    // 4. Định vị súng 7 màu
+                    featureToggleCard(
+                        title: "Định vị súng 7 màu",
+                        subtitle: "Lưu ý bật trước khi vào game",
+                        isOn: dinhViSungEnabled,
+                        onToggle: { handleDinhViSungToggle() }
+                    ) {
+                        Image(systemName: "eye.fill")
+                            .font(.system(size: 22, weight: .medium))
+                            .foregroundColor(.white)
+                    }
+                }
+
+                // Section: MENU
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("MENU HỖ TRỢ")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(Color(white: 0.45))
+                        .tracking(1.0)
+                        .padding(.leading, 4)
+                        .padding(.top, 4)
+
+                    // 5. Menu FF (theo tên API)
+                    featureToggleCard(
+                        title: menuTitle,
+                        subtitle: "Lưu ý bật trước khi vào game",
+                        isOn: menuCSharpEnabled,
+                        onToggle: { handleMenuCSharpToggle() }
+                    ) {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 22, weight: .medium))
+                            .foregroundColor(.white)
+                    }
                 }
             }
             .transition(.opacity)

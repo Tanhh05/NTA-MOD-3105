@@ -1,14 +1,76 @@
 import SwiftUI
+import UIKit
+
+// MARK: - Native UIKit UITextField for 100% reliable touch & typing on iOS 18
+struct NativeKeyInputField: UIViewRepresentable {
+    var placeholder: String
+    @Binding var text: String
+    var onCommit: (() -> Void)? = nil
+
+    func makeUIView(context: Context) -> UITextField {
+        let tf = UITextField(frame: .zero)
+        tf.attributedPlaceholder = NSAttributedString(
+            string: placeholder,
+            attributes: [.foregroundColor: UIColor(white: 0.45, alpha: 1.0)]
+        )
+        tf.text = text
+        tf.textColor = .white
+        tf.font = UIFont.monospacedSystemFont(ofSize: 15, weight: .medium)
+        tf.autocapitalizationType = .none
+        tf.autocorrectionType = .no
+        tf.spellCheckingType = .no
+        tf.returnKeyType = .done
+        tf.tintColor = UIColor(red: 0/255, green: 206/255, blue: 232/255, alpha: 1.0)
+        tf.delegate = context.coordinator
+        tf.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        tf.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return tf
+    }
+
+    func updateUIView(_ uiView: UITextField, context: Context) {
+        if uiView.text != text {
+            uiView.text = text
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text, onCommit: onCommit)
+    }
+
+    class Coordinator: NSObject, UITextFieldDelegate {
+        @Binding var text: String
+        var onCommit: (() -> Void)?
+
+        init(text: Binding<String>, onCommit: (() -> Void)?) {
+            self._text = text
+            self.onCommit = onCommit
+        }
+
+        func textFieldDidChangeSelection(_ textField: UITextField) {
+            DispatchQueue.main.async {
+                self.text = textField.text ?? ""
+            }
+        }
+
+        func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+            textField.resignFirstResponder()
+            onCommit?()
+            return true
+        }
+    }
+}
 
 struct AuthKeyView: View {
     @StateObject private var authService = AuthKeyService.shared
     @State private var inputKey: String = ""
-    @FocusState private var isFieldFocused: Bool
     
     var body: some View {
         ZStack {
             Color.black
                 .ignoresSafeArea()
+                .onTapGesture {
+                    dismissKeyboard()
+                }
             
             VStack(spacing: 0) {
                 Spacer()
@@ -40,23 +102,60 @@ struct AuthKeyView: View {
                     .padding(.top, 20)
                 
                 // Subtitle
-                Text("Enter a valid key.")
-                    .font(.system(size: 15, weight: .regular))
+                Text("Nhập mã key bản quyền để mở khóa app.")
+                    .font(.system(size: 14, weight: .regular))
                     .foregroundColor(Color(white: 0.55))
                     .padding(.top, 6)
                     .padding(.bottom, 28)
                 
-                // Input TextField
-                HStack {
-                    TextField("", text: $inputKey)
-                        .font(.system(size: 16, weight: .medium, design: .monospaced))
-                        .foregroundColor(.white)
-                        .tint(Color(red: 0/255, green: 206/255, blue: 232/255))
-                        .autocapitalization(.none)
-                        .disableAutocorrection(true)
-                        .focused($isFieldFocused)
+                // Input TextField Box with Paste & Clear Buttons
+                HStack(spacing: 8) {
+                    Image(systemName: "key.fill")
+                        .font(.system(size: 14))
+                        .foregroundColor(Color(white: 0.45))
+                    
+                    NativeKeyInputField(
+                        placeholder: "Nhập mã key tại đây...",
+                        text: $inputKey,
+                        onCommit: {
+                            dismissKeyboard()
+                            authService.verifyKey(inputKey)
+                        }
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    
+                    if !inputKey.isEmpty {
+                        Button {
+                            inputKey = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 16))
+                                .foregroundColor(Color(white: 0.5))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    
+                    Button {
+                        if let paste = UIPasteboard.general.string?.trimmingCharacters(in: .whitespacesAndNewlines), !paste.isEmpty {
+                            inputKey = paste
+                            dismissKeyboard()
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "doc.on.clipboard")
+                                .font(.system(size: 12, weight: .semibold))
+                            Text("Dán")
+                                .font(.system(size: 13, weight: .semibold))
+                        }
+                        .foregroundColor(Color(red: 0/255, green: 206/255, blue: 232/255))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color(red: 0/255, green: 206/255, blue: 232/255).opacity(0.15))
+                        .cornerRadius(8)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, 14)
                 .frame(height: 52)
                 .background(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -66,11 +165,11 @@ struct AuthKeyView: View {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .stroke(Color.white.opacity(0.15), lineWidth: 1)
                 )
-                .padding(.horizontal, 28)
+                .padding(.horizontal, 24)
                 
                 // Log In Button
                 Button {
-                    isFieldFocused = false
+                    dismissKeyboard()
                     authService.verifyKey(inputKey)
                 } label: {
                     ZStack {
@@ -90,11 +189,11 @@ struct AuthKeyView: View {
                 }
                 .disabled(authService.isChecking)
                 .buttonStyle(.plain)
-                .padding(.horizontal, 28)
+                .padding(.horizontal, 24)
                 .padding(.top, 16)
                 
                 // Footer / Error Text
-                Text(authService.errorMessage ?? "Enter your license key to unlock the app.")
+                Text(authService.errorMessage ?? "Vui lòng nhập mã bản quyền để sử dụng các tính năng.")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(Color(red: 235/255, green: 65/255, blue: 65/255))
                     .multilineTextAlignment(.center)
@@ -110,12 +209,10 @@ struct AuthKeyView: View {
             if !authService.savedKey.isEmpty {
                 inputKey = authService.savedKey
             }
-            // Auto focus if no key
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                if inputKey.isEmpty {
-                    isFieldFocused = true
-                }
-            }
         }
+    }
+    
+    private func dismissKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 }

@@ -94,9 +94,22 @@ enum ContainerStore {
         guard (try? PatchPathValidator.canonicalBundleIdentifier(bundleID)) == bundleID else {
             return nil
         }
+
+        // 1. LaunchServices appInfoForBundleID (direct, fast, reliable on iOS 17/18)
+        if let info = appInfoForBundleID(bundleID) as? [String: Any],
+           let container = info["container"] as? String,
+           !container.isEmpty {
+            let canonical = ContainerDiscoveryMerger.canonicalPath(container)
+            if isValidContainerPath(canonical) {
+                log("patch: LSApplicationProxy resolved \(bundleID) -> \(canonical)")
+                return canonical
+            }
+        }
+
+        // 2. MCMActivateContainerPath
         var lookupError: NSString?
         if let path = MCMActivateContainerPath(2, bundleID, false, &lookupError),
-           isApplicationContainerPath(path) {
+           isValidContainerPath(path) {
             log("patch: MHA-C2 resolved \(bundleID)")
             return path
         }
@@ -115,8 +128,8 @@ enum ContainerStore {
     }
 
     static func resolveAppContainerPathByMetadataScan(bundleID: String) -> String? {
-        // iOS < 26: kernel R/W is enough, no need to require full sandbox escape
-        if KernelExploit.requiresSandboxEscape, !KernelExploit.hasSandboxAccess() {
+        // Khi sandbox access chưa active thì bỏ qua metadata scan
+        if !KernelExploit.hasSandboxAccess() {
             log("patch: metadata scan skipped — sandbox access not active")
             return nil
         }
@@ -440,6 +453,15 @@ enum ContainerStore {
         return UUID(uuidString: (canonicalPath as NSString).lastPathComponent) != nil
     }
 
+    static func isValidContainerPath(_ path: String) -> Bool {
+        if isApplicationContainerPath(path) { return true }
+        let canonical = ContainerDiscoveryMerger.canonicalPath(path)
+        if canonical.contains("/Containers/Data/Application/") {
+            return true
+        }
+        return false
+    }
+
     // MARK: Filesystem discovery
 
     static func enumerateDirectories(path: String, maxInode: Int64 = 2_000_000) -> [String] {
@@ -448,6 +470,11 @@ enum ContainerStore {
 
         if let names = try? FileManager.default.contentsOfDirectory(atPath: clean), !names.isEmpty {
             return names.map { (clean as NSString).appendingPathComponent($0) }
+        }
+
+        // Trên iOS 18: Nếu chưa kích hoạt thì tuyệt đối không gọi bad_query_list quét 2 triệu inode
+        if AppInfo.isIOS18 && !KernelExploit.hasSandboxAccess() {
+            return []
         }
 
         var pathC = clean.utf8CString.map { Int8($0) }

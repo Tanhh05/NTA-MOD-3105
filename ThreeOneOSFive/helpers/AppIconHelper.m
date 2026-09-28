@@ -267,12 +267,31 @@ NSDictionary *appInfoForBundleID(NSString *bundleID) {
     if (!proxy) return result;
 
     BOOL matchesRequestedIdentifier = NO;
-    for (NSString *selectorName in @[@"applicationIdentifier", @"bundleIdentifier"]) {
+    for (NSString *selectorName in @[@"bundleIdentifier", @"applicationIdentifier"]) {
         SEL identifierSel = NSSelectorFromString(selectorName);
         if (![proxy respondsToSelector:identifierSel]) continue;
         id value = ((id (*)(id, SEL))objc_msgSend)(proxy, identifierSel);
-        if ([value isKindOfClass:[NSString class]] && [value isEqualToString:bundleID])
-            matchesRequestedIdentifier = YES;
+        if ([value isKindOfClass:[NSString class]]) {
+            NSString *valStr = (NSString *)value;
+            if ([valStr caseInsensitiveCompare:bundleID] == NSOrderedSame ||
+                [valStr hasSuffix:[@"." stringByAppendingString:bundleID]] ||
+                [bundleID hasSuffix:[@"." stringByAppendingString:valStr]]) {
+                matchesRequestedIdentifier = YES;
+                break;
+            }
+        }
+    }
+    if (!matchesRequestedIdentifier) {
+        for (NSString *selectorName in @[@"dataContainerURL", @"containerURL"]) {
+            SEL containerSel = NSSelectorFromString(selectorName);
+            if ([proxy respondsToSelector:containerSel]) {
+                id value = ((id (*)(id, SEL))objc_msgSend)(proxy, containerSel);
+                if (value) {
+                    matchesRequestedIdentifier = YES;
+                    break;
+                }
+            }
+        }
     }
     if (!matchesRequestedIdentifier) return result;
     result[@"found"] = @YES;

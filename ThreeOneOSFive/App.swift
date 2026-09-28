@@ -13,7 +13,6 @@ struct ThreeOneOSFiveApp: App {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init() {
-        setupLogCapture()
         log("app: 3105 launching — iOS \(AppInfo.osVersion) (\(AppInfo.osBuild)) \(AppInfo.machineName)")
     }
 
@@ -31,17 +30,8 @@ struct ThreeOneOSFiveApp: App {
                 .environment(\.appLanguage, language)
                 .environment(\.locale, language.locale)
                 .preferredColorScheme(.dark)
-                .displayIdentityAttribution(isPresented: $showAttribution, enabled: true)
-                .sheet(isPresented: $showAttribution) {
-                    DisplayAttributionSheet()
-                }
                 .onAppear {
-                    appState.detectSupport()
                     setupTerminationHandler()
-                }
-                .onChange(of: scenePhase) { phase in
-                    guard phase == .active else { return }
-                    appState.detectSupport()
                 }
                 .onOpenURL { url in
                     patchDraftCoordinator.presentImport(url)
@@ -126,6 +116,7 @@ class AppState: ObservableObject {
     var isSupported: Bool { unsupportedMessage == nil }
 
     func detectSupport() {
+        guard AuthKeyService.shared.isAuthenticated else { return }
         let v = AppInfo.versionTuple
         let supported = ExploitSupportPolicy.isSupported(
             major: v.major,
@@ -175,6 +166,10 @@ class AppState: ObservableObject {
     private func refreshKernelExploitStatus() {
         guard !kernelExploitRunning else { return }
 
+        if exploitStatus.isSuccess {
+            KernelExploit.isActivated = true
+        }
+
         // iOS < 26: kernel R/W success persists (no sandbox probe)
         // iOS >= 26: verify full sandbox escape is still active
         if KernelExploit.requiresSandboxEscape {
@@ -216,6 +211,7 @@ class AppState: ObservableObject {
             DispatchQueue.main.async {
                 self.kernelExploitRunning = false
                 if ok {
+                    KernelExploit.isActivated = true
                     self.exploitStatus = .success(method: "kexploit")
                     if KernelExploit.requiresSandboxEscape {
                         log("app: kernel exploit success — sandbox access verified")

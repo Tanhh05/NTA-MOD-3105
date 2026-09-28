@@ -96,7 +96,15 @@ final class AuthKeyService: ObservableObject {
         }
     }
     
+    private let cachedKeyName = "nta_auth_cached_key"
+    private let cachedExpiryName = "nta_auth_cached_expiry"
+    private let cachedDaysName = "nta_auth_cached_days"
+
     func saveToStorage() {
+        UserDefaults.standard.set(savedKey, forKey: cachedKeyName)
+        UserDefaults.standard.set(expiryDate, forKey: cachedExpiryName)
+        UserDefaults.standard.set(daysLeft, forKey: cachedDaysName)
+        
         let dict: [String: Any] = [
             "serverUrl": Self.apiURL,
             "packageToken": Self.packageToken,
@@ -123,6 +131,14 @@ final class AuthKeyService: ObservableObject {
     }
     
     func loadFromStorage() -> (key: String, expiry: String, days: Int)? {
+        // 1. Kiểm tra cache UserDefaults nhanh 0ms
+        if let key = UserDefaults.standard.string(forKey: cachedKeyName)?.trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty {
+            let expiry = UserDefaults.standard.string(forKey: cachedExpiryName) ?? ""
+            let days = UserDefaults.standard.integer(forKey: cachedDaysName)
+            return (key, expiry, days)
+        }
+        
+        // 2. Kiểm tra file lưu trữ
         let paths = [Self.licenseFilePath, Self.effectiveLicensePath]
         for p in paths {
             if FileManager.default.fileExists(atPath: p),
@@ -132,6 +148,9 @@ final class AuthKeyService: ObservableObject {
                 let expiry = (json["expiryDate"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 let days = json["daysLeft"] as? Int ?? (Int((json["daysLeft"] as? String) ?? "") ?? 0)
                 if !key.isEmpty {
+                    UserDefaults.standard.set(key, forKey: cachedKeyName)
+                    UserDefaults.standard.set(expiry, forKey: cachedExpiryName)
+                    UserDefaults.standard.set(days, forKey: cachedDaysName)
                     return (key, expiry, days)
                 }
             }
@@ -140,6 +159,10 @@ final class AuthKeyService: ObservableObject {
     }
     
     func deleteStorageFile() {
+        UserDefaults.standard.removeObject(forKey: cachedKeyName)
+        UserDefaults.standard.removeObject(forKey: cachedExpiryName)
+        UserDefaults.standard.removeObject(forKey: cachedDaysName)
+        
         try? FileManager.default.removeItem(atPath: Self.licenseFilePath)
         if !Self.canAccessVarMobile() {
             try? FileManager.default.removeItem(atPath: Self.effectiveLicensePath)
@@ -209,8 +232,28 @@ final class AuthKeyService: ObservableObject {
             DispatchQueue.main.async {
                 self.isAuthenticated = false
                 self.initialCheckDone = true
+                UserDefaults.standard.set(false, forKey: "nta_aim_co")
+                UserDefaults.standard.set(false, forKey: "nta_aim_body")
+                UserDefaults.standard.set(false, forKey: "nta_tam_len_dau")
+                UserDefaults.standard.set(false, forKey: "nta_dinh_vi_sung")
+                UserDefaults.standard.set(false, forKey: "nta_menu_csharp")
+                // Màn hình nhập key: Tuyệt đối không can thiệp container hay quét file
             }
             return
+        }
+        
+        if !saved.expiry.isEmpty {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = TimeZone(identifier: "Asia/Ho_Chi_Minh") ?? TimeZone(secondsFromGMT: 7 * 3600)
+            if let expire = formatter.date(from: saved.expiry), expire.timeIntervalSinceNow <= 0 {
+                DispatchQueue.main.async {
+                    self.invalidateAndRestoreGoc(reason: "Mã key đã hết hạn sử dụng!")
+                    self.initialCheckDone = true
+                }
+                return
+            }
         }
         
         self.savedKey = saved.key
@@ -312,6 +355,15 @@ final class AuthKeyService: ObservableObject {
                     self.saveToStorage()
                     self.updateCountdown()
                     self.startPeriodicValidation()
+                    
+                    // Quét container & dọn dẹp file CHỈ chạy sau khi nhập key thành công và chạy trên background thread
+                    // Lưu ý trên iOS 18: Chỉ quét container và dọn dẹp file sau khi ấn kích hoạt trong trang chủ
+                    if !AppInfo.isIOS18 {
+                        DispatchQueue.global(qos: .utility).async {
+                            _ = FFModService.shared.removeMenuCSharpFiles()
+                        }
+                    }
+                    
                     completion?(true, nil)
                 } else {
                     let displayMsg = message.isEmpty ? "Mã key không hợp lệ hoặc đã hết hạn!" : message
@@ -361,6 +413,10 @@ final class AuthKeyService: ObservableObject {
         stopPeriodicValidation()
         deleteStorageFile()
         UserDefaults.standard.set(false, forKey: "nta_aim_co")
+        UserDefaults.standard.set(false, forKey: "nta_aim_body")
+        UserDefaults.standard.set(false, forKey: "nta_tam_len_dau")
+        UserDefaults.standard.set(false, forKey: "nta_dinh_vi_sung")
+        UserDefaults.standard.set(false, forKey: "nta_menu_csharp")
         savedKey = ""
         expiryDate = ""
         daysLeft = 0
@@ -369,8 +425,16 @@ final class AuthKeyService: ObservableObject {
         if let reason = reason {
             errorMessage = reason
         }
-        // Restore cache_goc to game directory and turn off mod
-        _ = FFModService.shared.restoreGoc(isMax: false)
+        
+        // Chạy khôi phục và dọn dẹp file hoàn toàn trên background thread
+        // Dán lại file cache_goc (aim) và shader_goc (định vị) cho cả 2 bản game
+        DispatchQueue.global(qos: .utility).async {
+            if !AppInfo.isIOS18 || KernelExploit.hasSandboxAccess() || KernelExploit.isActivated {
+                _ = FFModService.shared.restoreAimGoc(isMax: nil)
+                _ = FFModService.shared.restoreDinhViGoc(isMax: nil)
+                _ = FFModService.shared.removeMenuCSharpFiles()
+            }
+        }
     }
     
     func logout() {

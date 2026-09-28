@@ -48,6 +48,9 @@ func setupLogCapture() {
 
 // MARK: - App Info
 enum AppInfo {
+    static var isIOS18: Bool {
+        versionTuple.major == 18
+    }
     static var osVersion: String {
         let v = ProcessInfo.processInfo.operatingSystemVersion
         return "\(v.majorVersion).\(v.minorVersion).\(v.patchVersion)"

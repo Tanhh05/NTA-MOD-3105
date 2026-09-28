@@ -6,6 +6,7 @@ struct ContentView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @EnvironmentObject private var patchDraftCoordinator: PatchDraftCoordinator
     @EnvironmentObject private var patchStore: PatchProjectStore
+    @EnvironmentObject private var appState: AppState
     @AppStorage(FeatureVisibility.developerModeStorageKey)
     private var developerModeEnabled = false
     @State private var tabNavigation: AppTabNavigationState
@@ -35,11 +36,13 @@ struct ContentView: View {
     var body: some View {
         Group {
             if authService.isAuthenticated {
-                PatchProjectsView(
-                    onOpenSettings: openSettings,
-                    onOpenLogs: openLogs
-                )
-                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                if horizontalSizeClass == .regular {
+                    regularLayout
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                } else {
+                    compactLayout
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                }
             } else {
                 AuthKeyView()
                     .transition(.opacity)
@@ -52,18 +55,79 @@ struct ContentView: View {
         .onAppear {
             authService.autoCheck()
         }
+        .onChange(of: authService.isAuthenticated) { authenticated in
+            if authenticated {
+                appState.detectSupport()
+            }
+        }
         .onChange(of: scenePhase) { phase in
-            if phase == .active {
-                if authService.isAuthenticated {
-                    authService.revalidateCurrentKey()
-                } else {
-                    authService.autoCheck()
-                }
+            if phase == .active, authService.isAuthenticated {
+                authService.revalidateCurrentKey()
+                appState.detectSupport()
             }
         }
         .sheet(isPresented: $showSettings) { SettingsView() }
         .sheet(isPresented: $showLogs) { LogView() }
         .patchStorePresentation(patchStore)
+    }
+
+    @ViewBuilder
+    private var compactLayout: some View {
+        if featureVisibility.visibleSections.count > 1 {
+            TabView(selection: tabSelection) {
+                ForEach(featureVisibility.visibleSections) { section in
+                    sectionContent(section)
+                        .tabItem {
+                            CompactTabLabel(
+                                title: language.text(section.titleKey),
+                                systemImage: section.systemImage
+                            )
+                        }
+                        .tag(section.rawValue)
+                }
+            }
+        } else {
+            sectionContent(.installed)
+        }
+    }
+
+    @ViewBuilder
+    private var regularLayout: some View {
+        if featureVisibility.visibleSections.count > 1 {
+            NavigationSplitView {
+                List {
+                    ForEach(featureVisibility.visibleSections) { section in
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                tabNavigation.select(section.rawValue)
+                            }
+                        } label: {
+                            Label(language.text(section.titleKey), systemImage: section.systemImage)
+                                .fontWeight(section.rawValue == tabNavigation.selectedTab ? .semibold : .regular)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .listRowBackground(
+                            section.rawValue == tabNavigation.selectedTab
+                                ? AppTheme.accent.opacity(0.14)
+                                : Color.clear
+                        )
+                        .accessibilityAddTraits(
+                            section.rawValue == tabNavigation.selectedTab ? .isSelected : []
+                        )
+                    }
+                }
+                .navigationTitle("NTA MOD")
+                .navigationSplitViewColumnWidth(min: 210, ideal: 240, max: 300)
+            } detail: {
+                sectionContent(selectedVisibleSection)
+                    .id(selectedVisibleSection.rawValue)
+            }
+            .navigationSplitViewStyle(.balanced)
+        } else {
+            sectionContent(.installed)
+        }
     }
 
     @ViewBuilder
